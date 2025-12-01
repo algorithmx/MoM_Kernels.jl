@@ -84,7 +84,15 @@ function sparseApproximateInversePl(Znear::ZnearT{CT}, cubes::AbstractVector) wh
             # 提取对应的阻抗矩阵
             # Znn     =   zeros(CT, nNeibfs, nNeisNeibfs)
             # Znn 保存在预分配内存里
-            Znnt    =   Znnts[threadid()]
+            tid = threadid()
+            if tid > length(Znnts)
+                oldlen = length(Znnts)
+                resize!(Znnts, tid)
+                for k in oldlen+1:tid
+                    Znnts[k] = zeros(CT, 1)
+                end
+            end
+            Znnt    =   Znnts[tid]
             length(Znnt) < nNeibfs*nNeisNeibfs && resize!(Znnt, nNeibfs*nNeisNeibfs)
             fill!(Znnt, 0)
             Znn     =   reshape(view(Znnt, 1:nNeibfs*nNeisNeibfs), nNeibfs, nNeisNeibfs)
@@ -95,12 +103,26 @@ function sparseApproximateInversePl(Znear::ZnearT{CT}, cubes::AbstractVector) wh
             ZnnH    =   Znn'
 
             # Znn*ZnnH 也保存在预分配内存里
-            ZnnHZnnt = ZnnHZnnts[threadid()]
+            if tid > length(ZnnHZnnts)
+                oldlen = length(ZnnHZnnts)
+                resize!(ZnnHZnnts, tid)
+                for k in oldlen+1:tid
+                    ZnnHZnnts[k] = zeros(CT, 1)
+                end
+            end
+            ZnnHZnnt = ZnnHZnnts[tid]
             length(ZnnHZnnt) < nNeibfs*nNeibfs && resize!(ZnnHZnnt, nNeibfs*nNeibfs)
             fill!(ZnnHZnnt, 0)
             ZnnHZnn     =   reshape(view(ZnnHZnnt, 1:nNeibfs*nNeibfs), nNeibfs, nNeibfs)
 
-            PHt = PHts[threadid()]
+            if tid > length(PHts)
+                oldlen = length(PHts)
+                resize!(PHts, tid)
+                for k in oldlen+1:tid
+                    PHts[k] = zeros(CT, 1)
+                end
+            end
+            PHt = PHts[tid]
             length(PHt) < length(cbfs)*nNeibfs && resize!(PHt, length(cbfs)*nNeibfs)
             fill!(PHt, 0)
             PH  =   reshape(view(PHt, 1:length(cbfs)*nNeibfs), nNeibfs, length(cbfs))
@@ -124,6 +146,7 @@ function sparseApproximateInversePl(Znear::ZnearT{CT}, cubes::AbstractVector) wh
         BLAS.set_num_threads(nthds)
     end
     # 保存预条件类型
+    mkpath(SimulationParams.resultDir)
     open(joinpath(SimulationParams.resultDir, "InputArgs.txt"), "a+")  do f
         @printf f "%20s\n" "预条件"
         @printf f "%-20s %13s\n" "类型" "SAI" 
@@ -184,7 +207,15 @@ function sparseApproximateInversePr(Znear::ZnearT{CT}, cubes::AbstractVector) wh
             
             # 提取对应的阻抗矩阵
             # Znn 保存在预分配内存里
-            Znnt    =   Znnts[threadid()]
+            tid = threadid()
+            if tid > length(Znnts)
+                oldlen = length(Znnts)
+                resize!(Znnts, tid)
+                for k in oldlen+1:tid
+                    Znnts[k] = zeros(CT, 1)
+                end
+            end
+            Znnt    =   Znnts[tid]
             length(Znnt) < nNeibfs*nNeisNeibfs && resize!(Znnt, nNeibfs*nNeisNeibfs)
             fill!(Znnt, 0)
             Znn     =   reshape(view(Znnt, 1:nNeibfs*nNeisNeibfs), nNeisNeibfs, nNeibfs)
@@ -194,13 +225,27 @@ function sparseApproximateInversePr(Znear::ZnearT{CT}, cubes::AbstractVector) wh
             end
             ZnnH    =   adjoint(Znn)
 
-            Pt = Pts[threadid()]
+            if tid > length(Pts)
+                oldlen = length(Pts)
+                resize!(Pts, tid)
+                for k in oldlen+1:tid
+                    Pts[k] = zeros(CT, 1)
+                end
+            end
+            Pt = Pts[tid]
             length(Pt) < length(cbfs)*nNeibfs && resize!(Pt, length(cbfs)*nNeibfs)
             fill!(Pt, 0)
             P  =   reshape(view(Pt, 1:length(cbfs)*nNeibfs), nNeibfs, length(cbfs))
 
             # Znn*ZnnH 也保存在预分配内存里
-            ZnnZnnHt = ZnnZnnHts[threadid()]
+            if tid > length(ZnnZnnHts)
+                oldlen = length(ZnnZnnHts)
+                resize!(ZnnZnnHts, tid)
+                for k in oldlen+1:tid
+                    ZnnZnnHts[k] = zeros(CT, 1)
+                end
+            end
+            ZnnZnnHt = ZnnZnnHts[tid]
             length(ZnnZnnHt) < nNeibfs*nNeibfs && resize!(ZnnZnnHt, nNeibfs*nNeibfs)
             fill!(ZnnZnnHt, 0)
             ZnnZnnH     =   reshape(view(ZnnZnnHt, 1:nNeibfs*nNeibfs), nNeibfs, nNeibfs)
@@ -223,6 +268,7 @@ function sparseApproximateInversePr(Znear::ZnearT{CT}, cubes::AbstractVector) wh
         BLAS.set_num_threads(nthds)
     end
     # 保存预条件类型
+    mkpath(SimulationParams.resultDir)
     open(joinpath(SimulationParams.resultDir, "InputArgs.txt"), "a+")  do f
         @printf f "%20s\n" "预条件"
         @printf f "%-20s %13s\n" "类型" "SAI" 

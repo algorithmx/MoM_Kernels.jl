@@ -89,16 +89,25 @@ function agg2HighLevel!(tLevel, kLevel::LevelInfo{IT, FT, IPT}) where {IT, FT, I
     else # 线程数小于盒子数，用 @threads 多线程
         # 将本函数内的BLAS设为单线程
         BLAS.set_num_threads(1)
-        # 分线程分配内存
-        aggSInterpedϕs  =   zeros(CT, size(ϕCSC, 1), size(kAggS, 2), nthds)
-        aggSInterpeds   =   zeros(CT, size(θCSC, 1), size(kAggS, 2), nthds)
-        # 各个线程预分配内存
+        # 分线程分配内存（按线程的矩阵向量，避免固定维度的第三维导致越界）
+        aggSInterpedϕs  =   [zeros(CT, size(ϕCSC, 1), size(kAggS, 2)) for _ in 1:nthds]
+        aggSInterpeds   =   [zeros(CT, size(θCSC, 1), size(kAggS, 2)) for _ in 1:nthds]
+        # 各个线程预分配/获取内存
         @threads for iCube in eachindex(cubes)
             cube    =   cubes[iCube]
             # 线程 id
             tid     =   Threads.threadid()
-            aggSInterpedϕ2   =   view(aggSInterpedϕs, :, :, tid)
-            aggSInterped2    =   view(aggSInterpeds, :, :, tid)
+            if tid > length(aggSInterpedϕs)
+                oldlen = length(aggSInterpedϕs)
+                resize!(aggSInterpedϕs, tid)
+                resize!(aggSInterpeds, tid)
+                for k in oldlen+1:tid
+                    aggSInterpedϕs[k] = zeros(CT, size(ϕCSC, 1), size(kAggS, 2))
+                    aggSInterpeds[k]  = zeros(CT, size(θCSC, 1), size(kAggS, 2))
+                end
+            end
+            aggSInterpedϕ2   =   aggSInterpedϕs[tid]
+            aggSInterped2    =   aggSInterpeds[tid]
             # 对子盒子循环
             # 子盒子数
             nkCube  =   length(cube.kidsInterval)
@@ -339,19 +348,30 @@ function disagg2KidLevel!(tLevel, kLevel::LevelInfo{IT, FT, IPT}) where {IT, FT,
     else  # 线程数小于盒子数，用 @threads 多线程
         # 将本函数内的BLAS设为单线程
         BLAS.set_num_threads(1)
-        # 分线程分配内存
-        disGshifteds    =   zeros(CT, size(tDisaggG, 1), size(tDisaggG, 2), nthds)
-        disGInterpedθs  =   zeros(CT, size(θCSCT, 1), size(tDisaggG, 2), nthds)
-        disGInterpeds   =   zeros(CT, size(ϕCSCT, 1), size(tDisaggG, 2), nthds)
+        # 分线程分配内存（按线程的矩阵向量）
+        disGshifteds    =   [zeros(CT, size(tDisaggG, 1), size(tDisaggG, 2)) for _ in 1:nthds]
+        disGInterpedθs  =   [zeros(CT, size(θCSCT, 1), size(tDisaggG, 2)) for _ in 1:nthds]
+        disGInterpeds   =   [zeros(CT, size(ϕCSCT, 1), size(tDisaggG, 2)) for _ in 1:nthds]
         # 对盒子循环
         @threads for iCube in eachindex(cubes)
             cube    =   cubes[iCube]
             @views tCubeDisaggG    =   tDisaggG[:,:,iCube]
             # 线程 id
             tid     =   Threads.threadid()
-            disGshifted2    =   view(disGshifteds, :, :, tid)
-            disGInterpedθ2  =   view(disGInterpedθs, :, :, tid)
-            disGInterped2   =   view(disGInterpeds, :, :, tid)
+            if tid > length(disGshifteds)
+                oldlen = length(disGshifteds)
+                resize!(disGshifteds, tid)
+                resize!(disGInterpedθs, tid)
+                resize!(disGInterpeds, tid)
+                for k in oldlen+1:tid
+                    disGshifteds[k]    =   zeros(CT, size(tDisaggG, 1), size(tDisaggG, 2))
+                    disGInterpedθs[k]  =   zeros(CT, size(θCSCT, 1), size(tDisaggG, 2))
+                    disGInterpeds[k]   =   zeros(CT, size(ϕCSCT, 1), size(tDisaggG, 2))
+                end
+            end
+            disGshifted2    =   disGshifteds[tid]
+            disGInterpedθ2  =   disGInterpedθs[tid]
+            disGInterped2   =   disGInterpeds[tid]
             # 对子盒子循环
             # 子盒子数
             nkCube  =   length(cube.kidsInterval)              
@@ -427,19 +447,28 @@ function disagg2KidLevel!(tLevel, kLevel)
     else  # 线程数小于盒子数，用 @threads 多线程
         # 将本函数内的BLAS设为单线程
         BLAS.set_num_threads(1)
-        # 分线程分配内存
-        disGshifteds    =   zeros(CT, size(tDisaggG, 1), size(tDisaggG, 2), nthds)
-        # disGInterpedθs  =   zeros(CT, size(θCSCT, 1), size(tDisaggG, 2), nthds)
-        disGInterpeds   =   zeros(CT, size(kDisAggG, 1), size(tDisaggG, 2), nthds)
+        # 分线程分配内存（按线程的矩阵向量）
+        disGshifteds    =   [zeros(CT, size(tDisaggG, 1), size(tDisaggG, 2)) for _ in 1:nthds]
+        # disGInterpedθs  =   ... （未使用，省略）
+        disGInterpeds   =   [zeros(CT, size(kDisAggG, 1), size(tDisaggG, 2)) for _ in 1:nthds]
         # 对盒子循环
         @threads for iCube in eachindex(cubes)
             cube    =   cubes[iCube]
             @views tCubeDisaggG    =   tDisaggG[:,:,iCube]
             # 线程 id
             tid     =   Threads.threadid()
-            disGshifted2    =   view(disGshifteds, :, :, tid)
-            # disGInterpedθ2  =   view(disGInterpedθs, :, :, tid)
-            disGInterped2   =   view(disGInterpeds, :, :, tid)
+            if tid > length(disGshifteds)
+                oldlen = length(disGshifteds)
+                resize!(disGshifteds, tid)
+                resize!(disGInterpeds, tid)
+                for k in oldlen+1:tid
+                    disGshifteds[k]    =   zeros(CT, size(tDisaggG, 1), size(tDisaggG, 2))
+                    disGInterpeds[k]   =   zeros(CT, size(kDisAggG, 1), size(tDisaggG, 2))
+                end
+            end
+            disGshifted2    =   disGshifteds[tid]
+            # disGInterpedθ2  =   ...
+            disGInterped2   =   disGInterpeds[tid]
             # 对子盒子循环
             # 子盒子数
             nkCube  =   length(cube.kidsInterval)              
@@ -507,6 +536,13 @@ function disaggOnBF!(level, disaggSBF, ZI)
         # 盒子信息
         cube    =   cubes[iCube]
         tid     =   Threads.threadid()
+        if tid > length(ZInTemps)
+            oldlen = length(ZInTemps)
+            resize!(ZInTemps, tid)
+            for k in oldlen+1:tid
+                ZInTemps[k] = zero(CT)
+            end
+        end
         # 基函数区间
         bfInterval  =   cube.bfInterval
         # 该盒子解聚项
