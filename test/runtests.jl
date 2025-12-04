@@ -2,8 +2,9 @@ using MoM_Basics, MoM_Kernels, LinearAlgebra
 using Test
 include("Matrix and Solving.jl")
 include("PostProcessing.jl")
+include("ibc_test.jl")
 
-SimulationParams.SHOWIMAGE = true
+setRecordMem!(false)
 setPrecision!(Float32)
 
 @testset "MoM_Kernels.jl" begin

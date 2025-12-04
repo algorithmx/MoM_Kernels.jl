@@ -5,6 +5,7 @@ include("Singularity.jl")
 
 # EFIE 基函数相关矩阵元素\激励向量计算相关函数
 include("EFIE/EFIERWGTri.jl")
+include("EFIE/EFIEIBC.jl")
 include("EFIE/EFIEPWCTetra.jl")
 include("EFIE/EFIESWGTetra.jl")
 include("EFIE/EFIEPWCHexa.jl")
