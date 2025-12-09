@@ -1,20 +1,20 @@
-## 本文件用于构建求解器
+## This file is used to build solvers
 """
-迭代求解器选择
+Iterative solver selection
 """
 function iterSolverSet(solverType::Symbol)::Function
     getproperty(IterativeSolvers, solverType)
 end
 
 """
-保存电流系数
+Save current coefficients
 """
 function saveCurrent(ICurrent; str = "")
     jldsave(SimulationParams.resultDir*"ICurrent$str.jld2"; ICurrent = ICurrent)
 end
 
 """
-读取电流系数
+Load current coefficients
 """
 function loadCurrent(filename)
     occursin("jld2", filename) ? load("$filename", "ICurrent") : load("$filename.jld2", "ICurrent")
@@ -22,53 +22,53 @@ end
 
 
 """
-矩阵方程
+Matrix equation
 Ax=b
-复合求解函数
-输入值：
+Composite solver function
+Input:
 A::LinearMapType{T}, b::Vector{T}
-solverT::Symbol  求解器类型
+solverT::Symbol  Solver type
 """
 function solve(A::LinearMapType{T}, b::AbstractVector{T};
     solverT::Symbol=:gmres, Pl = Identity(), Pr = Identity(), rtol = 1e-3,
     maxiter = 1000, str = "", restart = 200, save_memtime = true, log = true, 
     verbose = true, args...) where{T<:Number}
-    # 直接求解
+    # Direct solve
     solverT  == :direct  && begin
         println("Solving matrix function with LUD.")
         try
-            @clock "直接求解" begin
+            @clock "Direct Solver" begin
                 x = A\b
             end
             save_memtime && restore_infos()
             return x, nothing
         catch
-            println("查看输入是否为矩阵！")
+            println("Check if input is a matrix!")
             return nothing, nothing
         end
     end  
 
     FT = real(T)
-    # 迭代求解器
+    # Iterative solver
     solver      =   iterSolverSet(solverT)
-    # 残差阈值
+    # Residual threshold
     resnorm0    =   FT(norm( Pl \ b))
     resnormtol  =   FT(rtol*resnorm0)
 
-    # 迭代求解
+    # Iterative solve
     verbose && @info "\nSolving with $solverT, initial resnorm: $resnorm0.\n"
-    @clock "迭代求解" begin
+    @clock "Iterative Solver" begin
         x, ch       =   solver(A, b; restart = restart, abstol = resnormtol, Pl = Pl, Pr = Pr,  log = log, verbose=verbose, maxiter = maxiter, args...)
     end
     save_memtime && restore_infos()
     saveCurrent(x; str = str)
-    # 相对残差结果
+    # Relative residual results
     relresnorm  =   ch.data[:resnorm] / resnorm0
 
-    # 命令行绘图
+    # Command line plotting
     (verbose && SimulationParams.SHOWIMAGE)  &&  convergencePlot(relresnorm)
 
-    # 将相对残差写入文件
+    # Write relative residual to file
     open(joinpath(SimulationParams.resultDir, "$(solverT)_ch$str.txt"), "w") do io
         for resi in relresnorm
             write(io, "$resi\n" )
@@ -79,55 +79,55 @@ function solve(A::LinearMapType{T}, b::AbstractVector{T};
 end
 
 """
-矩阵方程
+Matrix equation
 Ax=b
-复合求解函数
-输入值：
+Composite solver function
+Input:
 A::LinearMapType{T}, b::Vector{T}
-solverT::Symbol  求解器类型
+solverT::Symbol  Solver type
 """
 function solve!(A::LinearMapType{T}, x::AbstractVector{T}, b::AbstractVector{T}; 
     solverT::Symbol = :gmres!, Pl = Identity(), Pr = Identity(), rtol = 1e-3, 
     maxiter = 1000, str = "", restart = 200, save_memtime = true, log = true, 
     verbose = true, args...) where{T<:Number}
-    # 直接求解
+    # Direct solve
     solverT  == :direct  && begin
         println("Solving matrix function with LUD.")
         try
-            @clock "直接求解" begin
+            @clock "Direct Solver" begin
                 copyto!(x, A\b)
             end
             save_memtime && restore_infos()
             return (x, nothing)
         catch
-            println("查看输入是否为矩阵！")
+            println("Check if input is a matrix!")
             return nothing, nothing
         end
     end  
 
     FT = real(T)
-    # 迭代求解器
+    # Iterative solver
     solver      =   iterSolverSet(solverT)
-    # 残差阈值
+    # Residual threshold
     resnorm0    =   FT(norm( Pl \ b))
     resnormtol  =   FT(rtol*resnorm0)
 
-    # 迭代求解
+    # Iterative solve
     verbose && @info "\nSolving with $solverT, initial resnorm: $resnorm0.\n"
-    @clock "迭代求解" begin
+    @clock "Iterative Solver" begin
         x, ch       =   solver(x, A, b; restart = restart, abstol = resnormtol, Pl = Pl, Pr = Pr,  log = log, verbose = verbose, maxiter = maxiter, args...)
     end
 
     save_memtime && restore_infos()
     saveCurrent(x; str = str)
 
-    # 相对残差结果
+    # Relative residual results
     relresnorm  =   ch.data[:resnorm] / resnorm0
 
-    # 命令行绘图
+    # Command line plotting
     (verbose && SimulationParams.SHOWIMAGE)  &&  convergencePlot(relresnorm)
 
-    # 将相对残差写入文件
+    # Write relative residual to file
     open(joinpath(SimulationParams.resultDir, "$(solverT)_ch$str.txt"), "w") do io
         for resi in relresnorm
             write(io, "$resi\n" )
@@ -139,7 +139,7 @@ function solve!(A::LinearMapType{T}, x::AbstractVector{T}, b::AbstractVector{T};
 end
 
 """
-计算完成后绘制收敛曲线
+Plot convergence curve after calculation
 """
 function convergencePlot(resnorm::Vector{FT}) where{FT<:Real}
 

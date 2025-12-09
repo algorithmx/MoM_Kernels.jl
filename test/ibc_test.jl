@@ -4,8 +4,10 @@ using Test
 using StaticArrays
 using LinearAlgebra
 
-@testset "IBC Kernel Implementation" begin
+# Import internal (non-exported) kernel routines needed for these tests
+import MoM_Kernels: IBCOnTri, impedancemat4EFIE4PEC, impedancemat4EFIE4IBC
 
+@testset "IBC Kernel Implementation" begin
     # Helper to create a dummy triangle with valid geometry
     function create_test_triangle()
         tri = TriangleInfo{Int64, Float64}(1)

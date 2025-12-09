@@ -7,5 +7,8 @@ include("RadiationIntegral.jl")
 # 远场计算函数
 include("FarField.jl")
 
+# 场提取 (Surface Currents, etc.)
+include("FieldExtraction.jl")
+
 # 雷达散射截面(Radar Cross Section, RCS)计算相关函数
 include("RCS.jl")

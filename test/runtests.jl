@@ -2,6 +2,7 @@ using MoM_Basics, MoM_Kernels, LinearAlgebra
 using Test
 include("Matrix and Solving.jl")
 include("PostProcessing.jl")
+include("surface_current_extraction.jl")
 include("ibc_test.jl")
 
 setRecordMem!(false)
