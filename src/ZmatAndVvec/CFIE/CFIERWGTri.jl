@@ -368,7 +368,8 @@ function impedancemat4CFIE4PEC(trianglesInfo::Vector{TriangleInfo{IT, FT}}, nrwg
     # 线程锁防止对同一数据写入出错
     lockZ   =   SpinLock()
     # Progress Meter
-    pmeter  =   Progress(trisnum; desc = "Calculating Impedance Matrix($nrwg × $nrwg)")
+    # pmeter  =   Progress(trisnum; desc = "Calculating Impedance Matrix($nrwg × $nrwg)")
+    println("Calculating Impedance Matrix($nrwg × $nrwg) with $(Threads.nthreads()) threads...")
 
     # 外层定义为场基函数循环
     @threads for triti in trisIdx
@@ -441,7 +442,7 @@ function impedancemat4CFIE4PEC(trianglesInfo::Vector{TriangleInfo{IT, FT}}, nrwg
 
         end #for trisj
 
-        next!(pmeter)
+        # next!(pmeter)
 
     end #for triti
 
