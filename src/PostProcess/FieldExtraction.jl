@@ -1,16 +1,16 @@
 """
     calSurfaceCurrents(geosInfo, bfsInfo, ICoeff)
 
-Compute surface current density J at centroids using `geoElectricJCal`. Returns `FieldData`.
+Compute surface current density J at centroids using `geoElectricJCal`. Returns a `NamedTuple`.
 `bfsInfo` is provided for API compatibility but is not used (as `geosInfo` contains basis IDs).
 """
 function calSurfaceCurrents(geosInfo, bfsInfo, ICoeff)
     # Dispatch based on type of geosInfo
-    # Note: geoElectricJCal returns 3xN Matrix. FieldData needs Vector{SVec3D}.
+    # Note: geoElectricJCal returns 3xN Matrix. Field data needs Vector{SVec3D}.
     
     J_matrix = _compute_J_matrix(geosInfo, ICoeff)
     
-    # Flatten geometry to get centers for FieldData
+    # Flatten geometry to get centers for field data
     geos_flat = _flatten_geos(geosInfo)
     npoints = length(geos_flat)
     
@@ -25,9 +25,7 @@ function calSurfaceCurrents(geosInfo, bfsInfo, ICoeff)
         J_vec[i]     = SVec3D{CT}(J_matrix[1, i], J_matrix[2, i], J_matrix[3, i])
     end
     
-    fd = FieldData{FT, CT}(npoints, positions)
-    fd.fields[:J] = J_vec
-    return fd
+    return (npoints = npoints, positions = positions, fields = Dict(:J => J_vec))
 end
 
 function _compute_J_matrix(geosInfo::AbstractVector{<:TriangleInfo}, ICoeff)
@@ -68,12 +66,12 @@ function _flatten_geos(geosInfo::AbstractVector{<:AbstractVector})
 end
 
 """
-    saveSurfaceCurrents(filename::String, data::FieldData)
+    saveSurfaceCurrents(filename::String, data)
 
 Save precomputed surface current field data to disk. This is a thin wrapper
 around `saveFieldData` for API compatibility with existing code/tests.
 """
-function saveSurfaceCurrents(filename::String, data::FieldData)
+function saveSurfaceCurrents(filename::String, data)
     saveFieldData(filename, data)
 end
 

@@ -44,14 +44,12 @@ using LinearAlgebra
     updateVSBFTParams!(;sbfT = :RWG)
     
     # Test Data Structure
-    # SurfaceCurrentData is deprecated/removed in basics, using FieldData now.
-    # @test SurfaceCurrentData isa UnionAll
     
     # Test Calculation
     # Note: bfsInfo can be empty as it is ignored in new implementation
     data = calSurfaceCurrents(geos, [], ICoeff)
     
-    @test data isa FieldData
+    @test data isa NamedTuple
     @test data.npoints == 2
     @test data.positions[1] ≈ SVec3D{FT}(0,0,0)
     @test data.positions[2] ≈ SVec3D{FT}(1,0,0)
