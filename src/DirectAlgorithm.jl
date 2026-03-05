@@ -8,7 +8,8 @@ nbf::       基函数数量
 返回：
 Zmat
 """
-function getImpedanceMatrix(geosInfo::Vector{ST}, nbf::Integer) where {ST<:SurfaceCellType}
+function getImpedanceMatrix(geosInfo::Vector{ST}, nbf::Integer;
+                            check_quality::Bool = false) where {ST<:SurfaceCellType}
     @clock "矩阵计算" begin
         if SimulationParams.ieT == :EFIE
             # 计算 RWG下 的 EFIE 阻抗矩阵
@@ -23,6 +24,11 @@ function getImpedanceMatrix(geosInfo::Vector{ST}, nbf::Integer) where {ST<:Surfa
     end
 
     SimulationParams.recordMem && begin memory["全矩阵"] = Base.summarysize(Zmat) end
+
+    if check_quality
+        check_impedance_symmetry(Zmat; formulation = SimulationParams.ieT)
+        check_matrix_condition(Zmat)
+    end
 
     return Zmat
 end

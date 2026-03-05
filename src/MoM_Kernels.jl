@@ -29,7 +29,9 @@ export  inputParameters,
         saveGeosInfoChunks, saveVec2Chunks, getNeighborCubeIDs,
         saveOctree, saveCubes, saveLevel,
         PartitionedVector,
-        gq_xsws_on_sphere
+        gq_xsws_on_sphere,
+        # 计算质量检查
+        check_matrix_condition
 
 # 计算信息保存
 include("Recorder.jl")
@@ -56,5 +58,12 @@ include("Extends.jl")
 
 # 废弃
 include("deprecate.jl")
+
+# 廉价条件数检查（分层算法）
+include("CheapConditionCheck.jl")
+using .CheapConditionCheck
+
+# 计算质量检查
+include("SanityChecks.jl")
 
 end
