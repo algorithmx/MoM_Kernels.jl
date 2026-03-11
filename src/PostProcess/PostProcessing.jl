@@ -12,3 +12,6 @@ include("FieldExtraction.jl")
 
 # 雷达散射截面(Radar Cross Section, RCS)计算相关函数
 include("RCS.jl")
+
+# S参数计算相关函数
+include("SParameters.jl")

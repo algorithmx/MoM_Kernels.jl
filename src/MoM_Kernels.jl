@@ -23,7 +23,10 @@ export  inputParameters,
         solve, solve!, saveCurrent, loadCurrent,
         geoElectricJCal, electricJCal, raditionalIntegralNCal,
         calSurfaceCurrents, saveSurfaceCurrents,
+        # RCS and far-field calculations
         radarCrossSection, RCSPlot, farField, farEPlot,
+        # S-parameter calculations
+        computeInputImpedance, computeS11, computeSParameters,
         ParallelParams, set_nprocs!, GeosInterval,
         getMeshDataSaveGeosInterval, set_geosInterval!,
         saveGeosInfoChunks, saveVec2Chunks, getNeighborCubeIDs,
