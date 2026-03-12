@@ -4,6 +4,7 @@ include("Matrix and Solving.jl")
 include("PostProcessing.jl")
 include("surface_current_extraction.jl")
 include("ibc_test.jl")
+include("sparameters.jl")
 
 setRecordMem!(false)
 setPrecision!(Float32)
@@ -150,6 +151,10 @@ setPrecision!(Float32)
 
         end
 
+    end
+
+    @testset "S-Parameters" begin
+        test_sparameters()
     end
 
     rm("results"; force = true, recursive = true)

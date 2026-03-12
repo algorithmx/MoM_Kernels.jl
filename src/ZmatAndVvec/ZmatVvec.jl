@@ -23,5 +23,9 @@ include("MFIE/MFIEExcitedVectors.jl")
 include("CFIE/CFIERWGTri.jl")
 include("CFIE/CFIEExcitedVectors.jl")
 
+# 端口激励向量计算 (Port excitation vector implementations)
+# 使用 Julia 多重派发自动选择端口特定方法 (Uses Julia's multiple dispatch for port-specific methods)
+include("Ports/PortsExcitation.jl")
+
 
 ##
