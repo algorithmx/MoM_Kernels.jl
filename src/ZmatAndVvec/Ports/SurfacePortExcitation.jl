@@ -10,7 +10,7 @@
 #   - DeltaGapPort: Single-edge voltage source (delta-gap model)
 #   - CurrentProbe: Direct current injection
 #   - DeltaGapArrayPort: Multi-edge array port with weighted distribution
-#   - RectangularWaveguidePort: Rectangular waveguide port (delegates to DeltaGapArrayPort)
+#   - RectangularEdgePort: Rectangular edge port (delegates to DeltaGapArrayPort)
 #
 # IE Compatibility:
 #   | Port Type             | EFIE | MFIE | CFIE |
@@ -18,7 +18,7 @@
 #   | DeltaGapPort         | ✓    | EFIE | ✓    |
 #   | CurrentProbe         | ✓    | ✓    | ✓    |
 #   | DeltaGapArrayPort    | ✓    | ERROR| ✓    |
-#   | RectangularWaveguidePort | ✓ | ERROR| ✓    |
+#   | RectangularEdgePort | ✓ | ERROR| ✓    |
 #
 # Note: For MFIE with voltage ports (DeltaGapPort, DeltaGapArrayPort), we use EFIE
 # excitation as industry standard, since voltage sources are naturally expressed
@@ -243,18 +243,18 @@ end
 
 
 # -----------------------------------------------------------------------------
-# RectangularWaveguidePort - Delegates to DeltaGapArrayPort
+# RectangularEdgePort - Delegates to DeltaGapArrayPort
 # -----------------------------------------------------------------------------
 
 """
-    excitationVectorEFIE(port::RectangularWaveguidePort, trianglesInfo, nbf)
+    excitationVectorEFIE(port::RectangularEdgePort, trianglesInfo, nbf)
 
-Compute EFIE excitation vector for rectangular waveguide port.
+Compute EFIE excitation vector for rectangular edge port.
 
 Delegates to DeltaGapArrayPort implementation.
 """
 function excitationVectorEFIE(
-    port::RectangularWaveguidePort{FT, IT, DT},
+    port::RectangularEdgePort{FT, IT, DT},
     trianglesInfo::Vector{TriangleInfo{IT, FT}},
     nbf::Integer
 ) where {FT<:Real, IT<:Integer, DT<:AbstractExcitationDistribution{FT}}
@@ -266,15 +266,15 @@ end
 
 
 """
-    excitationVectorEFIE!(V, port::RectangularWaveguidePort, trianglesInfo)
+    excitationVectorEFIE!(V, port::RectangularEdgePort, trianglesInfo)
 
-Add rectangular waveguide port excitation to existing vector V.
+Add rectangular edge port excitation to existing vector V.
 
 Delegates to DeltaGapArrayPort implementation.
 """
 function excitationVectorEFIE!(
     V::Vector{Complex{FT}},
-    port::RectangularWaveguidePort{FT, IT, DT},
+    port::RectangularEdgePort{FT, IT, DT},
     trianglesInfo::Vector{TriangleInfo{IT, FT}}
 ) where {FT<:Real, IT<:Integer, DT<:AbstractExcitationDistribution{FT}}
 
@@ -421,18 +421,18 @@ end
 
 
 # -----------------------------------------------------------------------------
-# RectangularWaveguidePort - Delegates to DeltaGapArrayPort
+# RectangularEdgePort - Delegates to DeltaGapArrayPort
 # -----------------------------------------------------------------------------
 
 """
-    excitationVectorMFIE(port::RectangularWaveguidePort, trianglesInfo, nbf; strategy)
+    excitationVectorMFIE(port::RectangularEdgePort, trianglesInfo, nbf; strategy)
 
-MFIE excitation for RectangularWaveguidePort.
+MFIE excitation for RectangularEdgePort.
 
 Delegates to DeltaGapArrayPort implementation.
 """
 function excitationVectorMFIE(
-    port::RectangularWaveguidePort{FT, IT, DT},
+    port::RectangularEdgePort{FT, IT, DT},
     trianglesInfo::Vector{TriangleInfo{IT, FT}},
     nbf::Integer;
     strategy::Symbol = :efie_fallback
@@ -545,18 +545,18 @@ end
 
 
 # -----------------------------------------------------------------------------
-# RectangularWaveguidePort - Delegates to DeltaGapArrayPort
+# RectangularEdgePort - Delegates to DeltaGapArrayPort
 # -----------------------------------------------------------------------------
 
 """
-    excitationVectorCFIE(port::RectangularWaveguidePort, trianglesInfo, nbf; alpha)
+    excitationVectorCFIE(port::RectangularEdgePort, trianglesInfo, nbf; alpha)
 
-Compute CFIE excitation vector for RectangularWaveguidePort.
+Compute CFIE excitation vector for RectangularEdgePort.
 
 For voltage sources, EFIE excitation is the natural choice.
 """
 function excitationVectorCFIE(
-    port::RectangularWaveguidePort{FT, IT, DT},
+    port::RectangularEdgePort{FT, IT, DT},
     trianglesInfo::Vector{TriangleInfo{IT, FT}},
     nbf::Integer;
     alpha::FT = FT(0.5),

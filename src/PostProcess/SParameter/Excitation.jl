@@ -108,13 +108,13 @@ function excitePort!(V::Vector{CT}, port::DeltaGapArrayPort{FT,IT,DT}) where {CT
 end
 
 """
-    excitePort!(V::Vector{CT}, port::RectangularWaveguidePort{FT,IT,DT}) where {CT,FT,IT,DT}
+    excitePort!(V::Vector{CT}, port::RectangularEdgePort{FT,IT,DT}) where {CT,FT,IT,DT}
 
-Excite a RectangularWaveguidePort.
+Excite a RectangularEdgePort.
 
 Delegates to DeltaGapArrayPort implementation.
 """
-function excitePort!(V::Vector{CT}, port::RectangularWaveguidePort{FT,IT,DT}) where {CT,FT,IT,DT}
+function excitePort!(V::Vector{CT}, port::RectangularEdgePort{FT,IT,DT}) where {CT,FT,IT,DT}
     # Convert to DeltaGapArrayPort and excite
     # This is a view conversion - no data is copied
     gap_port = _to_delta_gap_array_port(port)

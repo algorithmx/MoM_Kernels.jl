@@ -19,7 +19,7 @@
 #   | DeltaGapPort            | ✓    | EFIE | ✓    |
 #   | CurrentProbe            | ✓    | ✓    | ✓    |
 #   | DeltaGapArrayPort       | ✓    | EFIE | ✓    |
-#   | RectangularWaveguidePort| ✓    | EFIE | ✓    |
+#   | RectangularEdgePort| ✓    | EFIE | ✓    |
 #   | WavePort (planned)      | ✓    | N/A  | N/A  |
 #
 # Key Design Principles:

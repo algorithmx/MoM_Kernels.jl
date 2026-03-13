@@ -313,14 +313,14 @@ function measurePortImpedance(
 end
 
 """
-    measurePortImpedance(port_i::RectangularWaveguidePort{FT,IT,DT}, Z, I_j::Vector{CT}, port_j::PortType) where {CT,FT,IT,DT}
+    measurePortImpedance(port_i::RectangularEdgePort{FT,IT,DT}, Z, I_j::Vector{CT}, port_j::PortType) where {CT,FT,IT,DT}
 
-Measure impedance for RectangularWaveguidePort.
+Measure impedance for RectangularEdgePort.
 
 Delegates to DeltaGapArrayPort implementation via conversion.
 """
 function measurePortImpedance(
-    port_i::RectangularWaveguidePort{FT,IT,DT},
+    port_i::RectangularEdgePort{FT,IT,DT},
     Z,
     I_j::Vector{CT},
     port_j::PortType
