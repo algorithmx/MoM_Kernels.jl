@@ -13,7 +13,45 @@
 # =============================================================================
 
 """
-    saveTouchstone(filename::String, sparams::SParameterResult; 
+    _write_sparam_pair(io, s, format)
+
+Write a single S-parameter value pair to io in the specified Touchstone format.
+"""
+function _write_sparam_pair(io::IO, s::Complex, format::Symbol)
+    if format == :db
+        db_val = 20 * log10(abs(s))
+        ang_deg = rad2deg(angle(s))
+        print(io, @sprintf("%.12g %.12g ", db_val, ang_deg))
+    elseif format == :ma
+        mag = abs(s)
+        ang_deg = rad2deg(angle(s))
+        print(io, @sprintf("%.12g %.12g ", mag, ang_deg))
+    else  # :ri
+        print(io, @sprintf("%.12g %.12g ", real(s), imag(s)))
+    end
+end
+
+"""
+    _parse_sparam_pair(v1, v2, format_type)
+
+Parse a single S-parameter value pair from Touchstone data.
+"""
+function _parse_sparam_pair(v1::FT, v2::FT, format_type::Symbol) where {FT<:Real}
+    if format_type == :db
+        mag = 10^(v1 / 20)
+        ang = deg2rad(v2)
+        return mag * cis(ang)
+    elseif format_type == :ma
+        mag = v1
+        ang = deg2rad(v2)
+        return mag * cis(ang)
+    else  # :ri
+        return complex(v1, v2)
+    end
+end
+
+"""
+    saveTouchstone(filename::String, sparams::SParameterResult;
                    format::Symbol=:db,
                    comment::String="")
 
@@ -81,35 +119,39 @@ function saveTouchstone(
         # Data section
         for f_idx in 1:num_freqs
             freq = sparams.frequencies[f_idx]
-            
+
             # Frequency value
             print(io, freq, " ")
-            
-            # S-parameters for all port combinations
-            # Order: S11, S21, S12, S22 for 2-port (column-major in matrix)
-            # Actually Touchstone expects: S11, S21, S12, S22 (row by row)
-            for j in 1:num_ports, i in 1:num_ports
-                s = sparams.S[i, j, f_idx]
-                
-                if format == :db
-                    # dB and angle (degrees)
-                    db_val = 20 * log10(abs(s))
-                    ang_deg = rad2deg(angle(s))
-                    print(io, @sprintf("%.12g %.12g ", db_val, ang_deg))
-                    
-                elseif format == :ma
-                    # Magnitude and angle (degrees)
-                    mag = abs(s)
-                    ang_deg = rad2deg(angle(s))
-                    print(io, @sprintf("%.12g %.12g ", mag, ang_deg))
-                    
-                else  # :ri
-                    # Real and imaginary
-                    print(io, @sprintf("%.12g %.12g ", real(s), imag(s)))
+
+            pair_count = 0  # Track pairs on current line (max 4 per spec)
+
+            if num_ports == 1
+                # 1-port: trivial — one pair on one line
+                _write_sparam_pair(io, sparams.S[1, 1, f_idx], format)
+                println(io)
+            elseif num_ports == 2
+                # 2-port: special order S11, S21, S12, S22 (spec Rev 1.1 §2.3)
+                for (i, j) in [(1,1), (2,1), (1,2), (2,2)]
+                    _write_sparam_pair(io, sparams.S[i, j, f_idx], format)
+                end
+                println(io)
+            else
+                # N-port (N >= 3): row-major order, max 4 pairs per line
+                for i in 1:num_ports
+                    for j in 1:num_ports
+                        if pair_count >= 4
+                            println(io)
+                            print(io, " ")  # Continuation line indented
+                            pair_count = 0
+                        end
+                        _write_sparam_pair(io, sparams.S[i, j, f_idx], format)
+                        pair_count += 1
+                    end
+                    # Each matrix row starts on a new line
+                    println(io)
+                    pair_count = 0
                 end
             end
-            
-            println(io)  # New line after each frequency
         end
     end
     
@@ -169,31 +211,33 @@ function loadTouchstone(filename::String)
     lines = readlines(filename)
     
     # Parse header
-    freq_unit = :Hz
+    # Spec defaults for bare '#' option line: GHz, S, MA, R 50
+    freq_unit = :ghz
     parameter_type = :S
-    format_type = :db
+    format_type = :ma
     Z0 = 50.0
-    
+
     data_lines = String[]
-    
+
     for line in lines
         line = strip(line)
-        
+
         # Skip empty lines
         isempty(line) && continue
-        
-        # Comment line
+
+        # Comment line (starts with !)
         if startswith(line, '!')
             continue
         end
-        
+
         # Option line
         if startswith(line, '#')
             parts = split(line)
             # Parse: # Hz S DB R 50.0
             for (i, part) in enumerate(parts)
-                if part in ("Hz", "KHz", "MHz", "GHz", "THz", "PHz")
-                    freq_unit = Symbol(part)
+                part_lower = lowercase(part)
+                if part_lower in ("hz", "khz", "mhz", "ghz")
+                    freq_unit = Symbol(part_lower)
                 elseif part in ("S", "Y", "Z", "H", "G")
                     parameter_type = Symbol(part)
                 elseif part in ("DB", "MA", "RI")
@@ -203,60 +247,79 @@ function loadTouchstone(filename::String)
                 end
             end
         else
-            # Data line
-            push!(data_lines, line)
+            # Data line — strip inline comments (text after !)
+            comment_pos = findfirst("!", line)
+            if comment_pos !== nothing
+                line = line[1:first(comment_pos)-1]
+            end
+            push!(data_lines, strip(line))
         end
     end
     
-    # Parse data
-    num_data_cols = length(split(data_lines[1]))
-    num_freqs = length(data_lines)
-    
-    # Determine number of ports from data columns
-    # Format: freq S11 S11(ang) S21 S21(ang) ... for 2-port
-    # Each S-parameter takes 2 columns
-    num_ports = Int(sqrt((num_data_cols - 1) / 2))
-    
+    # Parse data: concatenate all data values into a flat array, then split by frequency
+    all_values = Float64[]
+    for line in data_lines
+        append!(all_values, parse.(Float64, split(line)))
+    end
+
+    # Determine number of ports from the first frequency point
+    # Each frequency has 1 freq value + 2*N^2 S-parameter values
+    # For 1-port: 3 values, 2-port: 9 values, etc.
+    # Try to infer from total number of values
+    values_per_freq = nothing
+    for n in 1:100
+        vp = 1 + 2 * n * n
+        if length(all_values) % vp == 0
+            values_per_freq = vp
+            num_ports = n
+            break
+        end
+    end
+    if values_per_freq === nothing
+        error("Cannot determine number of ports from data")
+    end
+
+    num_freqs = length(all_values) ÷ values_per_freq
+
     FT = Float64
     CT = Complex{FT}
-    
+
     freqs = Vector{FT}(undef, num_freqs)
     S = Array{CT,3}(undef, num_ports, num_ports, num_freqs)
-    
-    for (line_idx, line) in enumerate(data_lines)
-        values = parse.(FT, split(line))
-        freqs[line_idx] = values[1]
-        
+
+    for f_idx in 1:num_freqs
+        offset = (f_idx - 1) * values_per_freq
+        freq_raw = all_values[offset + 1]
+
         # Convert frequency unit if needed
-        if freq_unit == :KHz
-            freqs[line_idx] *= 1e3
-        elseif freq_unit == :MHz
-            freqs[line_idx] *= 1e6
-        elseif freq_unit == :GHz
-            freqs[line_idx] *= 1e9
-        elseif freq_unit == :THz
-            freqs[line_idx] *= 1e12
+        if freq_unit == :khz
+            freqs[f_idx] = freq_raw * 1e3
+        elseif freq_unit == :mhz
+            freqs[f_idx] = freq_raw * 1e6
+        elseif freq_unit == :ghz
+            freqs[f_idx] = freq_raw * 1e9
+        else
+            freqs[f_idx] = freq_raw
         end
-        
+
         # Parse S-parameters
-        val_idx = 2
-        for j in 1:num_ports, i in 1:num_ports
-            v1 = values[val_idx]
-            v2 = values[val_idx + 1]
-            
-            if format_type == :db
-                mag = 10^(v1 / 20)
-                ang = deg2rad(v2)
-                S[i,j,line_idx] = mag * cis(ang)
-            elseif format_type == :ma
-                mag = v1
-                ang = deg2rad(v2)
-                S[i,j,line_idx] = mag * cis(ang)
-            else  # :ri
-                S[i,j,line_idx] = complex(v1, v2)
+        val_idx = offset + 2
+        if num_ports == 2
+            # 2-port: spec order is S11, S21, S12, S22
+            for (i, j) in [(1,1), (2,1), (1,2), (2,2)]
+                v1 = all_values[val_idx]
+                v2 = all_values[val_idx + 1]
+                S[i,j,f_idx] = _parse_sparam_pair(v1, v2, format_type)
+                val_idx += 2
             end
-            
-            val_idx += 2
+        else
+            # N-port (N >= 3): row-major order
+            for i in 1:num_ports, j in 1:num_ports
+                v1 = all_values[val_idx]
+                v2 = all_values[val_idx + 1]
+                S[i,j,f_idx] = _parse_sparam_pair(v1, v2, format_type)
+                val_idx += 2
+            end
         end
     end
     

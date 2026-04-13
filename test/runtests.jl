@@ -157,5 +157,7 @@ setPrecision!(Float32)
         test_sparameters()
     end
 
+    include("test_efie_groundplane.jl")
+
     rm("results"; force = true, recursive = true)
 end

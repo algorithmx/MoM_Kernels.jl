@@ -314,45 +314,49 @@ function excitationVectorMFIE(
     strategy::Symbol = :efie_fallback
 ) where {FT<:Real, IT<:Integer}
 
-    if strategy == :efie_fallback
-        # Industry standard: Use EFIE excitation for voltage sources
-        @warn "MFIE with DeltaGapPort: Using EFIE excitation (industry standard)" maxlog=1
-        return excitationVectorEFIE(port, trianglesInfo, nbf)
+    error("MFIE excitation for DeltaGapPort is not implemented. " *
+          "Use EFIE excitation (industry standard) or implement a custom strategy if needed.")
 
-    elseif strategy == :convert
-        # Strategy: Convert to equivalent current source
-        # I_eq = V / Z_port, assuming 50 ohm port impedance
-        Z_port = FT(50.0)
-        I_eq = port.V / Z_port
+    #TODO: examine the correctness of the following strategies for MFIE excitation of DeltaGapPort, and consider deprecation if :efie_fallback is the recommended approach
+    # if strategy == :efie_fallback
+    #     # Industry standard: Use EFIE excitation for voltage sources
+    #     @warn "MFIE with DeltaGapPort: Using EFIE excitation (industry standard)" maxlog=1
+    #     return excitationVectorEFIE(port, trianglesInfo, nbf)
 
-        # Create equivalent current probe
-        probe = CurrentProbe{FT, IT}(;
-            id = port.id,
-            I = I_eq,
-            freq = port.freq,
-            rwgID = port.rwgID,
-            triID = port.triID_pos,
-            edgel = port.edgel,
-            center = port.center,
-            isActive = port.isActive
-        )
+    # elseif strategy == :convert
+    #     # Strategy: Convert to equivalent current source
+    #     # I_eq = V / Z_port, assuming 50 ohm port impedance
+    #     Z_port = FT(50.0)
+    #     I_eq = port.V / Z_port
 
-        return excitationVectorMFIE(probe, trianglesInfo, nbf)
+    #     # Create equivalent current probe
+    #     probe = CurrentProbe{FT, IT}(;
+    #         id = port.id,
+    #         I = I_eq,
+    #         freq = port.freq,
+    #         rwgID = port.rwgID,
+    #         triID = port.triID_pos,
+    #         edgel = port.edgel,
+    #         center = port.center,
+    #         isActive = port.isActive
+    #     )
 
-    elseif strategy == :hybrid
-        # Hybrid method: Add small EFIE contribution at port location
-        V = zeros(Complex{FT}, nbf)
+    #     return excitationVectorMFIE(probe, trianglesInfo, nbf)
 
-        if port.rwgID > 0 && port.rwgID <= nbf
-            # Use small coefficient to avoid breaking MFIE numerical properties
-            epsilon = FT(1e-3)
-            V[port.rwgID] = port.V * port.edgel * epsilon
-        end
+    # elseif strategy == :hybrid
+    #     # Hybrid method: Add small EFIE contribution at port location
+    #     V = zeros(Complex{FT}, nbf)
 
-        return V
-    else
-        error("Unknown MFIE excitation strategy: $strategy")
-    end
+    #     if port.rwgID > 0 && port.rwgID <= nbf
+    #         # Use small coefficient to avoid breaking MFIE numerical properties
+    #         epsilon = FT(1e-3)
+    #         V[port.rwgID] = port.V * port.edgel * epsilon
+    #     end
+
+    #     return V
+    # else
+    #     error("Unknown MFIE excitation strategy: $strategy")
+    # end
 end
 
 
@@ -377,13 +381,17 @@ function excitationVectorMFIE(
     nbf::Integer
 ) where {FT<:Real, IT<:Integer}
 
-    V = zeros(Complex{FT}, nbf)
+    error("excitationVectorMFIE for CurrentProbe is not implemented. " *
+          "Use excitationVectorEFIE and excitationVectorMFIE to compute the CFIE combination manually if needed.")
 
-    if probe.rwgID > 0 && probe.rwgID <= nbf
-        V[probe.rwgID] = probe.I
-    end
+    #TODO: examine the correctness of using the same excitation for MFIE and EFIE for CurrentProbe, and consider if a separate implementation is needed for MFIE excitation of CurrentProbe
+    # V = zeros(Complex{FT}, nbf)
 
-    return V
+    # if probe.rwgID > 0 && probe.rwgID <= nbf
+    #     V[probe.rwgID] = probe.I
+    # end
+
+    # return V
 end
 
 
@@ -409,14 +417,8 @@ function excitationVectorMFIE(
     strategy::Symbol = :efie_fallback
 ) where {FT<:Real, IT<:Integer, DT<:AbstractExcitationDistribution{FT}}
 
-    if strategy == :efie_fallback
-        @warn "MFIE with DeltaGapArrayPort: Using EFIE excitation (industry standard)" maxlog=1
-        return excitationVectorEFIE(port, trianglesInfo, nbf)
-    else
-        error("excitationVectorMFIE is not implemented for DeltaGapArrayPort with strategy=$strategy. " *
-              "MFIE formulation with multi-edge voltage ports requires physical consideration. " *
-              "Use EFIE formulation or strategy=:efie_fallback.")
-    end
+    error("MFIE excitation for DeltaGapArrayPort is not implemented. " *
+          "Use EFIE excitation (industry standard) or implement a custom strategy if needed.")
 end
 
 
@@ -438,9 +440,8 @@ function excitationVectorMFIE(
     strategy::Symbol = :efie_fallback
 ) where {FT<:Real, IT<:Integer, DT<:AbstractExcitationDistribution{FT}}
 
-    # Delegate to DeltaGapArrayPort implementation
-    gap_port = _to_delta_gap_array_port(port)
-    return excitationVectorMFIE(gap_port, trianglesInfo, nbf; strategy = strategy)
+    error("MFIE excitation for RectangularEdgePort is not implemented. " *
+          "Use EFIE excitation (industry standard) or implement a custom strategy if needed.")
 end
 
 
@@ -472,20 +473,9 @@ function excitationVectorCFIE(
     mfie_strategy::Symbol = :efie_fallback
 ) where {FT<:Real, IT<:Integer}
 
-    # For voltage sources, use EFIE excitation
-    V_efie = excitationVectorEFIE(port, trianglesInfo, nbf)
-
-    if mfie_strategy == :efie_fallback
-        # Use EFIE only for voltage sources in CFIE
-        return V_efie
-    else
-        # Get MFIE excitation with specified strategy
-        V_mfie = excitationVectorMFIE(port, trianglesInfo, nbf; strategy = mfie_strategy)
-
-        # CFIE combination: V_CFIE = α × V_EFIE + (1-α) × η × V_MFIE
-        one_minus_alpha = FT(1.0) - alpha
-        return alpha .* V_efie .+ one_minus_alpha .* FT(η_0) .* V_mfie
-    end
+    error("excitationVectorCFIE for DeltaGapPort is not implemented. " *
+          "For voltage sources, EFIE excitation is the natural choice. " *
+          "Use excitationVectorEFIE or implement a custom CFIE combination if needed.")
 end
 
 
@@ -510,13 +500,17 @@ function excitationVectorCFIE(
     alpha::FT = FT(0.5)
 ) where {FT<:Real, IT<:Integer}
 
+    error("excitationVectorCFIE for CurrentProbe is not implemented. " *
+          "Use excitationVectorEFIE and excitationVectorMFIE to compute the CFIE combination manually if needed.")
+
+    #TODO: examine on the correctness of the following CFIE combination for CurrentProbe
     # Get EFIE and MFIE excitation vectors
-    V_efie = excitationVectorEFIE(probe, trianglesInfo, nbf)
-    V_mfie = excitationVectorMFIE(probe, trianglesInfo, nbf)
+    # V_efie = excitationVectorEFIE(probe, trianglesInfo, nbf)
+    # V_mfie = excitationVectorMFIE(probe, trianglesInfo, nbf)
 
     # CFIE combination
-    one_minus_alpha = FT(1.0) - alpha
-    return alpha .* V_efie .+ one_minus_alpha .* FT(η_0) .* V_mfie
+    # one_minus_alpha = FT(1.0) - alpha
+    # return alpha .* V_efie .+ one_minus_alpha .* FT(η_0) .* V_mfie
 end
 
 
@@ -538,9 +532,10 @@ function excitationVectorCFIE(
     alpha::FT = FT(0.5),
     kwargs...
 ) where {FT<:Real, IT<:Integer, DT<:AbstractExcitationDistribution{FT}}
-
-    # For voltage sources, EFIE is the natural choice
-    return excitationVectorEFIE(port, trianglesInfo, nbf)
+    
+    error("excitationVectorCFIE for DeltaGapArrayPort is not implemented. " *
+          "For voltage sources, EFIE excitation is the natural choice. " *
+          "Use excitationVectorEFIE or implement a custom CFIE combination if needed.")
 end
 
 
@@ -564,5 +559,7 @@ function excitationVectorCFIE(
 ) where {FT<:Real, IT<:Integer, DT<:AbstractExcitationDistribution{FT}}
 
     # For voltage sources, EFIE is the natural choice
-    return excitationVectorEFIE(port, trianglesInfo, nbf)
+    error("excitationVectorCFIE for RectangularEdgePort is not implemented. " *
+          "For voltage sources, EFIE excitation is the natural choice. " *
+          "Use excitationVectorEFIE or implement a custom CFIE combination if needed.")
 end

@@ -1,4 +1,17 @@
 
+# Import Green's function types from MoM_Basics
+using MoM_Basics: AbstractGreenFunction, FreeSpaceGF, GroundPlaneGF, LayeredMediaGF,
+                  evaluate_greenfunc, create_green_function, get_green_function_type,
+                  evaluate_dcim_smooth, get_layer_index,
+                  GFParams
+
+@inline function get_default_green_function(::Type{FT}) where {FT<:AbstractFloat}
+    gf = create_green_function(get_green_function_type())
+    gf isa AbstractGreenFunction{FT} ||
+        error("Configured Green's function type $(typeof(gf)) does not match triangle precision $FT")
+    return gf
+end
+
 """
 计算三角形上相关9个阻抗矩阵元，
 此函数方法用于计算场源三角形不重合且相隔较远的情况，因此输入有两个个三角形信息类型实例
@@ -6,19 +19,42 @@
 trit， tris     :   TriangleInfo, 场三角形和源三角形
 """
 function EFIEOnTris(trit::TriangleInfo{IT, FT}, tris::TriangleInfo{IT, FT}) where {IT<: Integer, FT<:AbstractFloat}
+    # 默认入口尊重当前Green's函数配置
+    gf = get_default_green_function(FT)
+    return EFIEOnTris(trit, tris, gf)
+end
+
+"""
+    EFIEOnTris(trit::TriangleInfo, tris::TriangleInfo, gf::AbstractGreenFunction)
+
+计算三角形上相关9个阻抗矩阵元（带Green's函数选择）
+
+# Arguments
+- `trit::TriangleInfo`: 场三角形
+- `tris::TriangleInfo`: 源三角形  
+- `gf::AbstractGreenFunction`: Green's函数实例（FreeSpaceGF, GroundPlaneGF等）
+
+# Notes
+- 使用新的GreenFunction模块接口
+- 将A和φ势的Green's函数分开计算（对于ground plane和layered media它们不同）
+"""
+function EFIEOnTris(trit::TriangleInfo{IT, FT}, tris::TriangleInfo{IT, FT}, 
+                    gf::AbstractGreenFunction{FT}) where {IT<: Integer, FT<:AbstractFloat}
     # 保存结果的 (3*3) 小数组
     Ztri    =   zeros(Complex{FT}, 3, 3)
     # 常数
     C4divk²     =   Params.C4divk²
     JKηdiv16π   =   Params.JKηdiv16π
-    # 预分配内存
-    gw      =   zero(MMatrix{GQPNTri, GQPNTri, Complex{FT}})
+    
+    # 预分配内存 - 分别用于向量势(A)和标量势(φ)
+    gw_A    =   zero(MMatrix{GQPNTri, GQPNTri, Complex{FT}})
+    gw_phi  =   zero(MMatrix{GQPNTri, GQPNTri, Complex{FT}})
     
     # 场源求积点
     rgt     =   getGQPTri(trit)
     rgs     =   getGQPTri(tris)
 
-    ## 求g乘以权重
+    ## 求g_A和g_phi乘以权重
     # 对源求积点循环
     @inbounds for gj in 1:GQPNTri
         # 源高斯求积点
@@ -27,8 +63,12 @@ function EFIEOnTris(trit::TriangleInfo{IT, FT}, tris::TriangleInfo{IT, FT}) wher
         for gi in 1:GQPNTri
             # 场高斯求积点
             rgi  =  view(rgt, :, gi)
-            # g乘以权重
-            gw[gi, gj]  =   greenfunc(rgi, rgj)*TriGQInfo.weight[gi]*TriGQInfo.weight[gj]
+            # 使用新的Green's函数接口
+            g_vals = evaluate_greenfunc(gf, rgi, rgj)
+            w = TriGQInfo.weight[gi]*TriGQInfo.weight[gj]
+            # 分别存储A和φ的Green's函数
+            gw_A[gi, gj]   = g_vals.g_A * w
+            gw_phi[gi, gj] = g_vals.g_phi * w
         end # for gi
     end #for gj
         
@@ -59,17 +99,16 @@ function EFIEOnTris(trit::TriangleInfo{IT, FT}, tris::TriangleInfo{IT, FT}) wher
                     rgj =   rgs[:, gj]
                     # ρn
                     ρnj  =   rgj - freeVn
-                    # if (mi==2) & (ni==1)
-                    #     println("ρnj ", ρnj, "\t rgj", rgj, "\t freevn", freeVn)
-                    # end
                     # 对场求积点循环
                     for gi in 1:GQPNTri
                         # 场高斯求积点
                         rgi =  rgt[:, gi]
                         # ρm
                         ρmi =  rgi - freeVm
-                        # 计算结果
-                        Ztemp  +=  (ρmi ⋅ ρnj - C4divk²)*gw[gi, gj]                    
+                        # 计算结果 - 分开A和φ项
+                        # 原式: (ρmi ⋅ ρnj - C4divk²) * gw
+                        # 新式: (ρmi ⋅ ρnj) * gw_A - C4divk² * gw_phi
+                        Ztemp  +=  (ρmi ⋅ ρnj) * gw_A[gi, gj] - C4divk² * gw_phi[gi, gj]
                     end #for gi
                 end #for gj
                 Ztemp   *=  lm*ln*JKηdiv16π
@@ -89,6 +128,25 @@ end
 trit， tris     :   TriangleInfo, 场三角形和源三角形
 """
 function EFIEOnNearTris(trit::TriangleInfo{IT, FT}, tris::TriangleInfo{IT, FT}) where {IT<: Integer, FT<:AbstractFloat}
+    # 默认入口尊重当前Green's函数配置
+    gf = get_default_green_function(FT)
+    return EFIEOnNearTris(trit, tris, gf)
+end
+
+"""
+    EFIEOnNearTris(trit::TriangleInfo, tris::TriangleInfo, gf::AbstractGreenFunction)
+
+计算近奇异情况下的阻抗矩阵元（带Green's函数选择）
+
+# Notes
+- 对于自由空间，使用现有的faceSingularityIgIvecg处理奇异性
+- 对于ground plane: 直接项使用与自由空间相同的奇异性提取，
+  像项光滑无奇异性，通过双重高斯求积减去像贡献
+  (场用GQPNTriSglr，源用GQPNTri)
+- 其他GF类型：仅使用自由空间直接项（带警告）
+"""
+function EFIEOnNearTris(trit::TriangleInfo{IT, FT}, tris::TriangleInfo{IT, FT},
+                        gf::AbstractGreenFunction{FT}) where {IT<: Integer, FT<:AbstractFloat}
     # 保存结果的 (3*3) 小数组
     Ztri    =   zeros(Complex{FT}, 3, 3)
     # 常数
@@ -145,6 +203,90 @@ function EFIEOnNearTris(trit::TriangleInfo{IT, FT}, tris::TriangleInfo{IT, FT}) 
 
         end #for mi
     end # for ni 
+
+    # ========================================================================
+    # Ground plane image correction for near-singular case
+    # Direct term is handled above (singularity extraction via analytical integrals).
+    # Image term is smooth → standard double Gaussian quadrature.
+    # G_total = G_direct - G_image  (PEC ground, horizontal currents)
+    # ========================================================================
+    if gf isa GroundPlaneGF
+        z_gnd   =   gf.z_gnd
+        k_gf    =   gf.k
+        # Source quadrature points (standard order — image is smooth)
+        rgs     =   getGQPTri(tris)
+
+        @inbounds for ni in 1:3
+            ln      =   tris.edgel[ni]
+            freeVn  =   tris.vertices[:, ni]
+            n       =   tris.inBfsID[ni]
+            n == 0 && continue
+            for mi in 1:3
+                lm      =   trit.edgel[mi]
+                freeVm  =   trit.vertices[:, mi]
+                m       =   trit.inBfsID[mi]
+                m == 0 && continue
+
+                Zimage  =   zero(Complex{FT})
+                for gj in 1:GQPNTri
+                    rgj         =   view(rgs, :, gj)
+                    ρnj         =   rgj - freeVn
+                    rgj_img_z   =   2*z_gnd - rgj[3]
+                    for gi in 1:GQPNTriSglr
+                        rgi     =   view(rgt, :, gi)
+                        ρmi     =   rgi - freeVm
+                        dz      =   rgi[3] - rgj_img_z
+                        R_image =   sqrt((rgi[1]-rgj[1])^2 + (rgi[2]-rgj[2])^2 + dz^2)
+                        G_image =   exp(-im * k_gf * R_image) / R_image
+                        Zimage  +=  (ρmi ⋅ ρnj - C4divk²) * G_image *
+                                    TriGQInfoSglr.weight[gi] * TriGQInfo.weight[gj]
+                    end
+                end
+                Ztri[mi, ni]    -=  Zimage * lm * ln * JKηdiv16π
+            end
+        end
+    elseif gf isa LayeredMediaGF
+        # Layered media near-singular: direct part handled by singularity extraction.
+        # Add smooth DCIM correction (Level 1 + Level 2 images) via standard quadrature.
+        k_gf = gf.k
+        rgs = getGQPTri(tris)
+
+        for ni in 1:3
+            ln = tris.edgel[ni]
+            freeVn = tris.vertices[:, ni]
+            n = tris.inBfsID[ni]
+            n == 0 && continue
+            for mi in 1:3
+                lm = trit.edgel[mi]
+                freeVm = trit.vertices[:, mi]
+                m = trit.inBfsID[mi]
+                m == 0 && continue
+
+                Zcorr = zero(Complex{FT})
+                for gj in 1:GQPNTri
+                    rgj = view(rgs, :, gj)
+                    ρnj = rgj - freeVn
+                    for gi in 1:GQPNTriSglr
+                        rgi = view(rgt, :, gi)
+                        ρmi = rgi - freeVm
+                        ρ = sqrt((rgi[1]-rgj[1])^2 + (rgi[2]-rgj[2])^2)
+
+                        # Layered media correction per layer pair
+                        src_layer = get_layer_index(gf.stack, rgj[3])
+                        obs_layer = get_layer_index(gf.stack, rgi[3])
+                        key = (src_layer, obs_layer)
+                        dg_A = evaluate_dcim_smooth(gf.g_a_coeffs[key], ρ, rgi[3], rgj[3], k_gf)
+                        dg_phi = evaluate_dcim_smooth(gf.g_phi_coeffs[key], ρ, rgi[3], rgj[3], k_gf)
+
+                        Zcorr += ((ρmi ⋅ ρnj) * dg_A - C4divk² * dg_phi) *
+                                 TriGQInfoSglr.weight[gi] * TriGQInfo.weight[gj]
+                    end
+                end
+                Ztri[mi, ni] += Zcorr * lm * ln * JKηdiv16π
+            end
+        end
+    end
+
     return Ztri
 end
 
@@ -155,6 +297,23 @@ end
 tri     :   TriangleInfo
 """
 function EFIEOnTris(tri::TriangleInfo{IT, FT}) where {IT<: Integer, FT<:AbstractFloat}
+    # 默认入口尊重当前Green's函数配置
+    gf = get_default_green_function(FT)
+    return EFIEOnTris(tri, gf)
+end
+
+"""
+    EFIEOnTris(tri::TriangleInfo, gf::AbstractGreenFunction)
+
+计算自阻抗矩阵元（带Green's函数选择）
+
+# Notes
+- 对于自由空间，使用greenfunc_star和解析奇异项处理
+- 对于ground plane: 直接项使用与自由空间相同的奇异性提取，
+  像项光滑无奇异性，通过高斯求积减去像贡献
+- 其他GF类型：仅使用自由空间直接项（带警告）
+"""
+function EFIEOnTris(tri::TriangleInfo{IT, FT}, gf::AbstractGreenFunction{FT}) where {IT<: Integer, FT<:AbstractFloat}
     CT  =   Complex{FT}
     # 面积平方
     local areasquare    =  tri.area^2
@@ -243,6 +402,123 @@ function EFIEOnTris(tri::TriangleInfo{IT, FT}) where {IT<: Integer, FT<:Abstract
 
     end # for ni 
 
+    # ========================================================================
+    # Ground plane image correction (Phase 1: horizontal currents)
+    # For GroundPlaneGF, the direct part (computed above) is identical to
+    # free-space. The image contribution is smooth (no singularity) and is
+    # subtracted using standard Gaussian quadrature.
+    # G_total = G_direct - G_image  (PEC ground, horizontal currents)
+    # ========================================================================
+    if gf isa GroundPlaneGF
+        z_gnd   =   gf.z_gnd
+        k_gf    =   gf.k
+
+        # Pre-compute image GF at all quadrature point pairs
+        # Image GF is symmetric: G_image(ri, mirror(rj)) = G_image(rj, mirror(ri))
+        gw_image =  zero(MMatrix{GQPNTriSglr, GQPNTriSglr, CT})
+        @inbounds for gj in 1:GQPNTriSglr
+            rgj         =   getGQPTriSglr(tri, gj)
+            rgj_img_z   =   2*z_gnd - rgj[3]
+            for gi in gj:GQPNTriSglr
+                rgi     =   (gi != gj ? getGQPTriSglr(tri, gi) : rgj)
+                dz      =   rgi[3] - rgj_img_z
+                R_image =   sqrt((rgi[1]-rgj[1])^2 + (rgi[2]-rgj[2])^2 + dz^2)
+                G_image =   exp(-im * k_gf * R_image) / R_image
+                gw_image[gi, gj] = G_image * TriGQInfoSglr.weight[gi] * TriGQInfoSglr.weight[gj]
+            end
+        end
+
+        # Subtract image contribution for each basis function pair
+        @inbounds for ni in 1:3
+            ln      =   tri.edgel[ni]
+            freeVn  =   tri.vertices[:, ni]
+            n       =   tri.inBfsID[ni]
+            n == 0 && continue
+            for mi in ni:3
+                lm      =   tri.edgel[mi]
+                freeVm  =   tri.vertices[:, mi]
+                m       =   tri.inBfsID[mi]
+                m == 0 && continue
+
+                Zimage = zero(CT)
+                for gj in 1:GQPNTriSglr
+                    rgj =   getGQPTriSglr(tri, gj)
+                    ρs  =   rgj - freeVn
+                    for gi in gj:GQPNTriSglr
+                        rgi =   (gi != gj ? getGQPTriSglr(tri, gi) : rgj)
+                        ρt  =   rgi - freeVm
+                        Zimage += (gi != gj ? 2*(ρt ⋅ ρs - C4divk²)*gw_image[gi, gj] : (ρt ⋅ ρs - C4divk²)*gw_image[gi, gj])
+                    end
+                end
+                Zimage       *=  lm*ln*JKηdiv16π
+                Ztri[mi, ni] -=  Zimage
+                # Avoid double-subtracting the diagonal element
+                if mi != ni
+                    Ztri[ni, mi] -= Zimage
+                end
+            end
+        end
+    elseif gf isa LayeredMediaGF
+        # Layered media: direct part handled by singularity extraction (same as free-space).
+        # Add smooth DCIM correction (Level 1 + Level 2 complex images only).
+        # G_A and G_phi have DIFFERENT images (TE vs TM), so they must be separated.
+        k_gf = gf.k
+
+        # Determine layer index from triangle center
+        z_center = tri.center[3]
+        src_layer = get_layer_index(gf.stack, z_center)
+        key = (src_layer, src_layer)
+        coeffs_A = gf.g_a_coeffs[key]
+        coeffs_phi = gf.g_phi_coeffs[key]
+
+        # Pre-compute smooth DCIM correction at all quadrature point pairs
+        gw_A_smooth = zero(MMatrix{GQPNTriSglr, GQPNTriSglr, CT})
+        gw_phi_smooth = zero(MMatrix{GQPNTriSglr, GQPNTriSglr, CT})
+        @inbounds for gj in 1:GQPNTriSglr
+            rgj = getGQPTriSglr(tri, gj)
+            for gi in gj:GQPNTriSglr
+                rgi = (gi != gj ? getGQPTriSglr(tri, gi) : rgj)
+                ρ = sqrt((rgi[1]-rgj[1])^2 + (rgi[2]-rgj[2])^2)
+                dg_A = evaluate_dcim_smooth(coeffs_A, ρ, rgi[3], rgj[3], k_gf)
+                dg_phi = evaluate_dcim_smooth(coeffs_phi, ρ, rgi[3], rgj[3], k_gf)
+                w = TriGQInfoSglr.weight[gi] * TriGQInfoSglr.weight[gj]
+                gw_A_smooth[gi, gj] = dg_A * w
+                gw_phi_smooth[gi, gj] = dg_phi * w
+            end
+        end
+
+        # Add correction for each basis function pair
+        @inbounds for ni in 1:3
+            ln = tri.edgel[ni]
+            freeVn = tri.vertices[:, ni]
+            n = tri.inBfsID[ni]
+            n == 0 && continue
+            for mi in ni:3
+                lm = tri.edgel[mi]
+                freeVm = tri.vertices[:, mi]
+                m = tri.inBfsID[mi]
+                m == 0 && continue
+
+                Zcorr = zero(CT)
+                for gj in 1:GQPNTriSglr
+                    rgj = getGQPTriSglr(tri, gj)
+                    ρs = rgj - freeVn
+                    for gi in gj:GQPNTriSglr
+                        rgi = (gi != gj ? getGQPTriSglr(tri, gi) : rgj)
+                        ρt = rgi - freeVm
+                        sym = gi != gj ? 2 : 1
+                        Zcorr += sym * ((ρt ⋅ ρs) * gw_A_smooth[gi, gj] - C4divk² * gw_phi_smooth[gi, gj])
+                    end
+                end
+                Zcorr *= lm * ln * JKηdiv16π
+                Ztri[mi, ni] += Zcorr
+                if mi != ni
+                    Ztri[ni, mi] += Zcorr
+                end
+            end
+        end
+    end
+
     return Ztri
 
 end
@@ -266,7 +542,16 @@ end
 
 
 """
-本函数用于在有矩阵的情况下计算PEC的EFIE阻抗矩阵。
+    impedancemat4EFIE4PEC!(Zmat, trianglesInfo, bfT)
+
+在有矩阵的情况下计算PEC的EFIE阻抗矩阵。
+
+# 新特性：Green's函数选择
+根据GFParams配置自动选择Green's函数类型：
+- :freespace   - 自由空间Green's函数（默认，向后兼容）
+- :groundplane - PEC地面镜像理论
+- :layered     - 层状介质（待实现）
+
 输入信息：
 Zmat
 trianglesInfo:  为包含三角形信息实例的向量
@@ -292,6 +577,16 @@ function impedancemat4EFIE4PEC!(Zmat::Matrix{Complex{FT}}, trianglesInfo::Vector
     # Progress Meter
     pmeter  =   Progress(trisnum; desc = "Calculating Z (RWG, EFIE) ($nbf × $nbf)")
 
+    # 根据配置创建Green's函数实例
+    # 注：GF实例是不可变的，可以安全地在线程间共享
+    gf_type = get_green_function_type()
+    gf = create_green_function(gf_type)
+    
+    # 输出当前使用的Green's函数类型
+    if gf_type != :freespace
+        @info "Using Green's function: $(typeof(gf)) with configuration: $gf_type"
+    end
+
     # 外层定义为场基函数循环
     @threads for triti in trisIdx
         # 局域的场三角形
@@ -306,7 +601,7 @@ function impedancemat4EFIE4PEC!(Zmat::Matrix{Complex{FT}}, trianglesInfo::Vector
             # 判断二者远近，调用不同精度的矩阵元处理函数
             if Rts == 0.0
                 # 计算三角形相关的(3*3)个矩阵元的结果
-                Ztri  =  EFIEOnTris(trit)
+                Ztri  =  EFIEOnTris(trit, gf)
                 # 写入数据
                 lock(lockZ)
                 for ni in 1:3, mi in 1:3
@@ -322,7 +617,7 @@ function impedancemat4EFIE4PEC!(Zmat::Matrix{Complex{FT}}, trianglesInfo::Vector
 
             elseif Rts < Rsglr
                 # 需要进行近奇异性处理的场源三角形
-                Ztri    =   EFIEOnNearTris(trit, tris)
+                Ztri    =   EFIEOnNearTris(trit, tris, gf)
                 
                 # 写入数据
                 lock(lockZ)
@@ -342,7 +637,7 @@ function impedancemat4EFIE4PEC!(Zmat::Matrix{Complex{FT}}, trianglesInfo::Vector
             else
                 # 正常高斯求积
                 # 计算三角形相关的(3*3)个矩阵元的结果
-                Ztri    =   EFIEOnTris(trit, tris)
+                Ztri    =   EFIEOnTris(trit, tris, gf)
                 
                 # 写入数据
                 lock(lockZ)

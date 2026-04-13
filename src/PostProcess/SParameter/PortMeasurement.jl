@@ -2,180 +2,58 @@
 # Port Impedance Measurement
 # =============================================================================
 #
-# This file provides functions to measure port voltages and currents,
-# and compute port impedance Z_ij = V_i / I_j for given excitation.
+# This file provides functions to measure port currents and compute port 
+# impedance for given excitation.
 #
 # Uses multiple dispatch to handle different port types.
+#
+# Note: extractPortVoltage functions have been removed as they computed
+# (Z·I_j)[rwgID] which gives zero for off-diagonal entries in multi-port
+# analysis. The computeSParameters function now uses the Y-matrix inversion
+# approach which correctly computes all Z_ij terms.
 #
 # =============================================================================
 
 """
-    extractPortVoltage(port::PortType, Z, I_coeff::Vector{CT}) where CT
-
-Extract port voltage from solution vector.
-
-For voltage ports: Returns the source voltage (known)
-For current ports: Computes V = Z[port.rwgID, :] ⋅ I_coeff
-"""
-function extractPortVoltage(port::PortType, Z, I_coeff::Vector{CT}) where {CT<:Complex}
-    error("extractPortVoltage not implemented for port type $(typeof(port))")
-end
-
-"""
-    extractPortVoltage(port::DeltaGapPort{FT,IT}, Z, I_coeff::Vector{CT}) where {CT,FT,IT}
-
-Extract voltage for a DeltaGapPort (voltage source).
-
-For voltage sources, we compute the actual voltage response from the solution,
-not the source voltage. This gives the true port impedance.
-"""
-function extractPortVoltage(
-    port::DeltaGapPort{FT,IT},
-    Z,
-    I_coeff::Vector{CT}
-) where {CT<:Complex, FT<:Real, IT<:Integer}
-    rwgID = port.rwgID
-    
-    if rwgID <= 0 || rwgID > length(I_coeff)
-        error("Invalid port rwgID: $(rwgID)")
-    end
-    
-    # Compute voltage from impedance matrix row
-    # V_port = Σ_k Z[port, k] * I_coeff[k]
-    V_port = zero(CT)
-    
-    # Handle both dense matrices and MLFMA operators
-    if Z isa AbstractMatrix
-        # Dense matrix: direct row access
-        for k in 1:length(I_coeff)
-            V_port += Z[rwgID, k] * I_coeff[k]
-        end
-    else
-        # For MLFMA or other operators, use matrix-vector product
-        # Z_row = Z * e_rwgID (unit vector at port location)
-        e_port = zeros(CT, length(I_coeff))
-        e_port[rwgID] = one(CT)
-        Z_row = similar(e_port)
-        
-        # Apply Z to unit vector to get the row
-        # This works for any LinearMap-like operator
-        mul!(Z_row, Z, e_port)
-        
-        V_port = dot(Z_row, I_coeff)
-    end
-    
-    return V_port
-end
-
-"""
-    extractPortVoltage(port::CurrentProbe{FT,IT}, Z, I_coeff::Vector{CT}) where {CT,FT,IT}
-
-Extract voltage for a CurrentProbe (current source).
-
-For current sources, we must compute the voltage from the impedance matrix:
-V_port = Z[port.rwgID, :] ⋅ I_coeff
-"""
-function extractPortVoltage(
-    port::CurrentProbe{FT,IT},
-    Z,
-    I_coeff::Vector{CT}
-) where {CT<:Complex, FT<:Real, IT<:Integer}
-    rwgID = port.rwgID
-    
-    if rwgID <= 0 || rwgID > length(I_coeff)
-        error("Invalid port rwgID: $(rwgID)")
-    end
-    
-    # Compute voltage from impedance matrix
-    V_port = zero(CT)
-    
-    if Z isa AbstractMatrix
-        for k in 1:length(I_coeff)
-            V_port += Z[rwgID, k] * I_coeff[k]
-        end
-    else
-        # MLFMA or operator
-        e_port = zeros(CT, length(I_coeff))
-        e_port[rwgID] = one(CT)
-        Z_row = similar(e_port)
-        mul!(Z_row, Z, e_port)
-        V_port = dot(Z_row, I_coeff)
-    end
-    
-    return V_port
-end
-
-"""
-    extractPortVoltage(port::DeltaGapArrayPort{FT,IT,DT}, Z, I_coeff::Vector{CT}) where {CT,FT,IT,DT}
-
-Extract voltage for a DeltaGapArrayPort (multi-edge port).
-
-Computes weighted sum of voltages on all boundary edges:
-V_total = Σ_edge weight_edge × V_edge
-"""
-function extractPortVoltage(
-    port::DeltaGapArrayPort{FT,IT,DT},
-    Z,
-    I_coeff::Vector{CT}
-) where {CT<:Complex, FT<:Real, IT<:Integer, DT}
-    if !port.isBound
-        error("Port must be bound to mesh")
-    end
-    
-    V_total = zero(CT)
-    
-    for i in eachindex(port.rwgIDs)
-        rwgID = port.rwgIDs[i]
-        weight = port.edgeWeights[i]
-        
-        if rwgID <= 0 || rwgID > length(I_coeff)
-            continue
-        end
-        
-        # Compute voltage at this edge
-        V_edge = zero(CT)
-        if Z isa AbstractMatrix
-            for k in 1:length(I_coeff)
-                V_edge += Z[rwgID, k] * I_coeff[k]
-            end
-        else
-            # MLFMA
-            e_edge = zeros(CT, length(I_coeff))
-            e_edge[rwgID] = one(CT)
-            Z_row = similar(e_edge)
-            mul!(Z_row, Z, e_edge)
-            V_edge = dot(Z_row, I_coeff)
-        end
-        
-        V_total += weight * V_edge
-    end
-    
-    return V_total
-end
-
-"""
     extractPortCurrent(port::DeltaGapPort{FT,IT}, I_coeff::Vector{CT}) where {CT,FT,IT}
 
-Extract port current from solution vector.
+Extract port current for a DeltaGapPort (single-edge voltage source).
 
-Returns I_coeff[port.rwgID] for single-edge ports.
+Applies the same length factor as `excitePort!` (power-balance duality,
+A0_EDGE_PORT.md §6.4):
+
+    I_port = f × I_coeff[rwgID]
+
+where f is the dual of the excitation factor:
+  - Full RWG (triID_neg > 0, two adjacent triangles): f = edgel / 2
+  - Half/boundary RWG (triID_neg == 0, one triangle):  f = edgel
+
+This matches the `length_factor` used in `excitePort!(V, port::DeltaGapPort)`.
 """
 function extractPortCurrent(port::DeltaGapPort{FT,IT}, I_coeff::Vector{CT}) where {CT,FT,IT}
     rwgID = port.rwgID
-    
+
     if rwgID <= 0 || rwgID > length(I_coeff)
         error("Invalid port rwgID: $(rwgID)")
     end
-    
-    return I_coeff[rwgID]
+
+    # Dual of excitePort! length_factor: l/2 for full RWG, l for half (boundary) RWG.
+    length_factor = port.triID_neg > 0 ? port.edgel / 2 : port.edgel
+
+    return length_factor * I_coeff[rwgID]
 end
 
 """
     extractPortCurrent(port::CurrentProbe{FT,IT}, I_coeff::Vector{CT}) where {CT,FT,IT}
 
-Extract port current from solution vector for CurrentProbe.
+Extract port current for a CurrentProbe (single-edge current source).
 
-Returns I_coeff[port.rwgID] for single-edge ports.
+For a CurrentProbe the excitation entry is `V[rwgID] = port.I` with no
+length factor (the testing integral collapses to \$V_m = I_0\$ directly,
+see CurrentProbe docstring). By power-balance duality the length factor
+is therefore 1, so the raw RWG coefficient is the port current:
+
+    I_port = I_coeff[rwgID]
 """
 function extractPortCurrent(port::CurrentProbe{FT,IT}, I_coeff::Vector{CT}) where {CT,FT,IT}
     rwgID = port.rwgID
@@ -192,13 +70,20 @@ end
 
 Extract total port current for DeltaGapArrayPort.
 
-Sums currents on all boundary edges with their weights and length factors:
-I_total = Σ_edge weight_edge × I_edge × length_factor
+The length factor per edge must be the *dual* of the factor used in `excitePort!`
+so that the power balance P = ½ V_port* I_port holds:
+
+    P = ½ Σ_k V_k* I_k = ½ V_port* Σ_k w_k f_k I_k
+
+The factor f_k mirrors the excitation convention (A0_EDGE_PORT.md §5.1–5.2):
+  - Full RWG (triID_neg > 0, two adjacent triangles): f_k = l_k / 2
+  - Half/boundary RWG (triID_neg == 0, one triangle):  f_k = l_k
+
+This matches exactly the length_factor used in `excitePort!` and `_excitation_array!`.
+
+    I_total = Σ_edge  weight_edge × I_coeff[rwgID] × f_k
 """
-function extractPortCurrent(
-    port::DeltaGapArrayPort{FT,IT,DT},
-    I_coeff::Vector{CT}
-) where {CT<:Complex, FT<:Real, IT<:Integer, DT}
+function extractPortCurrent(port::DeltaGapArrayPort{FT,IT,DT}, I_coeff::Vector{CT}) where {CT<:Complex, FT<:Real, IT<:Integer, DT}
     if !port.isBound
         error("Port must be bound to mesh")
     end
@@ -213,15 +98,26 @@ function extractPortCurrent(
             continue
         end
         
-        # Length factor: l/2 for full RWG, l for half RWG
-        length_factor = port.triID_neg[i] > 0 ? 
-                        port.edgeLengths[i] / 2 : 
+        # Dual of excitePort! length_factor: l/2 for full RWG, l for half (boundary) RWG.
+        length_factor = port.triID_neg[i] > 0 ?
+                        port.edgeLengths[i] / 2 :
                         port.edgeLengths[i]
         
         I_total += weight * I_coeff[rwgID] * length_factor
     end
     
     return I_total
+end
+
+"""
+    extractPortCurrent(port::RectangularEdgePort{FT,IT,DT}, I_coeff::Vector{CT}) where {CT,FT,IT,DT}
+
+Extract total port current for a RectangularEdgePort.
+
+Delegates to the underlying `DeltaGapArrayPort` base via composition.
+"""
+function extractPortCurrent(port::RectangularEdgePort{FT,IT,DT}, I_coeff::Vector{CT}) where {CT<:Complex, FT<:Real, IT<:Integer, DT}
+    return extractPortCurrent(getfield(port, :base), I_coeff)
 end
 
 """
@@ -233,12 +129,22 @@ Computes the impedance seen at port i when port j is excited.
 
 # Arguments
 - `port_i::PortType`: Measurement port (port i)
-- `Z`: Impedance matrix or operator
+- `Z`: Impedance matrix or operator (unused in current implementations)
 - `I_j::Vector`: Solution current vector from exciting port j
 - `port_j::PortType`: Excitation port (port j)
 
 # Returns
 - `Complex{FT}`: Port impedance Z_ij
+
+# Note on Multi-Port Analysis
+For multi-port Z_ij (i≠j), the correct approach uses the Y-matrix method
+implemented in `computeSParameters`. The single-port versions of this
+function (DeltaGapPort, CurrentProbe) are not suitable for multi-port
+analysis as they compute (Z·I_j)[rwgID_i] which equals zero for passive ports.
+
+The array port versions (DeltaGapArrayPort, RectangularEdgePort) compute
+driving-point impedance Z_drive = V_j^src / I_j^port, which is only valid
+for single-port analysis (port_i == port_j).
 """
 function measurePortImpedance(
     port_i::PortType,
@@ -249,52 +155,24 @@ function measurePortImpedance(
     error("measurePortImpedance not implemented for port types $(typeof(port_i)), $(typeof(port_j))")
 end
 
-"""
-    measurePortImpedance(port_i::DeltaGapPort{FT,IT}, Z, I_j::Vector{CT}, port_j::PortType) where {CT,FT,IT}
-
-Measure impedance for DeltaGapPort (single-edge voltage port).
-"""
-function measurePortImpedance(
-    port_i::DeltaGapPort{FT,IT},
-    Z,
-    I_j::Vector{CT},
-    port_j::PortType
-) where {CT<:Complex, FT<:Real, IT<:Integer}
-    V_i = extractPortVoltage(port_i, Z, I_j)
-    I_i = extractPortCurrent(port_i, I_j)
-    
-    if abs(I_i) < eps(FT)
-        return Complex{FT}(Inf, 0)
-    end
-    
-    return V_i / I_i
-end
-
-"""
-    measurePortImpedance(port_i::CurrentProbe{FT,IT}, Z, I_j::Vector{CT}, port_j::PortType) where {CT,FT,IT}
-
-Measure impedance for CurrentProbe (single-edge current port).
-"""
-function measurePortImpedance(
-    port_i::CurrentProbe{FT,IT},
-    Z,
-    I_j::Vector{CT},
-    port_j::PortType
-) where {CT<:Complex, FT<:Real, IT<:Integer}
-    V_i = extractPortVoltage(port_i, Z, I_j)
-    I_i = extractPortCurrent(port_i, I_j)
-    
-    if abs(I_i) < eps(FT)
-        return Complex{FT}(Inf, 0)
-    end
-    
-    return V_i / I_i
-end
+# Note: measurePortImpedance for DeltaGapPort and CurrentProbe have been removed
+# as they used an incorrect algorithm (computed (Z·I_j)[rwgID] which gives zero
+# for off-diagonal entries). Use computeSParameters for correct multi-port analysis.
 
 """
     measurePortImpedance(port_i::DeltaGapArrayPort{FT,IT,DT}, Z, I_j::Vector{CT}, port_j::PortType) where {CT,FT,IT,DT}
 
-Measure impedance for DeltaGapArrayPort (multi-edge port).
+Driving-point impedance for a DeltaGapArrayPort:
+
+    Z_drive = V_j^src / I_j^port
+
+where `V_j^src = port_j.V` is the source voltage that generated `I_j`, and
+`I_j^port = extractPortCurrent(port_j, I_j)` is the resulting port current.
+
+# Single-port vs multi-port
+This formula is exact for single-port analysis (`port_i == port_j`).
+For multi-port Z_ij (i≠j) the correct value requires inverting the full
+short-circuit admittance matrix; use `computeSParameters` for that.
 """
 function measurePortImpedance(
     port_i::DeltaGapArrayPort{FT,IT,DT},
@@ -302,22 +180,25 @@ function measurePortImpedance(
     I_j::Vector{CT},
     port_j::PortType
 ) where {CT<:Complex, FT<:Real, IT<:Integer, DT}
-    V_i = extractPortVoltage(port_i, Z, I_j)
-    I_i = extractPortCurrent(port_i, I_j)
+    I_exc = extractPortCurrent(port_j, I_j)
     
-    if abs(I_i) < eps(FT)
+    if abs(I_exc) < eps(FT)
         return Complex{FT}(Inf, 0)
     end
     
-    return V_i / I_i
+    return port_j.V / I_exc
 end
 
 """
     measurePortImpedance(port_i::RectangularEdgePort{FT,IT,DT}, Z, I_j::Vector{CT}, port_j::PortType) where {CT,FT,IT,DT}
 
-Measure impedance for RectangularEdgePort.
+Driving-point impedance for a RectangularEdgePort. Delegates to the
+underlying `DeltaGapArrayPort` base for current extraction.
 
-Delegates to DeltaGapArrayPort implementation via conversion.
+    Z_drive = V_j^src / I_j^port
+
+See `measurePortImpedance(::DeltaGapArrayPort, ...)` for the single-port vs
+multi-port caveat.
 """
 function measurePortImpedance(
     port_i::RectangularEdgePort{FT,IT,DT},
@@ -325,13 +206,17 @@ function measurePortImpedance(
     I_j::Vector{CT},
     port_j::PortType
 ) where {CT<:Complex, FT<:Real, IT<:Integer, DT}
-    # Convert to DeltaGapArrayPort and measure
-    gap_port = _to_delta_gap_array_port(port_i)
-    return measurePortImpedance(gap_port, Z, I_j, port_j)
+    I_exc = extractPortCurrent(port_j, I_j)
+
+    if abs(I_exc) < eps(FT)
+        return Complex{FT}(Inf, 0)
+    end
+
+    return port_j.V / I_exc
 end
 
 # =============================================================================
 # Exports
 # =============================================================================
 
-export extractPortVoltage, extractPortCurrent, measurePortImpedance
+export extractPortCurrent, measurePortImpedance
